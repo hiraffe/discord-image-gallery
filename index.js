@@ -1,9 +1,3 @@
-const DISCORD_TOKEN = window.DISCORD_TOKEN || ""
-const DISCORD_GUILD_ID = window.DISCORD_GUILD_ID || ""
-const DISCORD_CATEGORY_IDS = Array.isArray(window.DISCORD_CATEGORY_IDS)
-  ? window.DISCORD_CATEGORY_IDS.map(String)
-  : []
-
 function sendNotification(type, msg) {
   const notifications = document.querySelector(".notifications")
   const notif = document.createElement("div")
@@ -144,10 +138,10 @@ window.addEventListener("load", () => {
   loadGuildChannels(categorySelect, channelSelect)
 })
 
-let currentOffset = 0
 let currentChannelId
-let currentGuildId = DISCORD_GUILD_ID
-let requestAllowed = true;
+let currentAfter = "0"
+let searchGeneration = 0
+let requestPromise = null
 
 let finished = false;
 const setFinished = v => {
@@ -156,109 +150,59 @@ const setFinished = v => {
 }
 
 async function request() {
-  if (!currentGuildId || !currentChannelId) return
-  if (!requestAllowed) return
+  if (!currentChannelId || requestPromise) return
   if (finished) return
-  requestAllowed = false
+  const generation = searchGeneration
+  let shouldContinue = false
+  const currentRequest = (async () => {
+    const query = new URLSearchParams({ after: currentAfter })
+    const response = await fetch(`/api/channels/${currentChannelId}/images?${query}`)
+    const data = await response.json()
+    if (generation !== searchGeneration) return
+    if (!response.ok) throw new Error(data.error || `Gallery request failed (${response.status}).`)
 
-  const query = new URLSearchParams({
-    has: "image",
-    offset: String(currentOffset),
-    channel_id: currentChannelId,
-    sort_by: "timestamp",
-    sort_order: "asc",
-  })
+    currentAfter = data.nextAfter
+    data.images.forEach(image => {
+      galleryImages.push(image)
+      display.addImage(image)
+    })
+    if (!data.hasMore) setFinished(true)
+    shouldContinue = data.hasMore
+  })()
 
-  const res = await fetch(
-    `https://discord.com/api/v9/guilds/${currentGuildId}/messages/search?${query}`,
-    {
-      headers: {
-        accept: "*/*",
-        authorization:
-          DISCORD_TOKEN,
-      },
-      body: null,
-      method: "GET",
-      mode: "cors",
-      credentials: "include",
+  requestPromise = currentRequest
+  try {
+    await currentRequest
+  } catch (error) {
+    if (generation === searchGeneration) {
+      sendNotification("error", error.message || "Could not load images.")
+      console.warn("gallery request failed", error)
     }
-  )
-
-  if (res.status === 429) {
-    sendNotification("error", "You are being rate limited!")
-    const data = await res.json();
-    setTimeout(() => {
-      requestAllowed = true
-      request()
-    }, data.retry_after * 1000);
-    return;
-  } else if (res.status === 400) {
-    sendNotification("warning", "Unknown fetch error.")
-    requestAllowed = true
-    return;
-  } else if (!res.ok) {
-    console.warn("unknown search fetch error")
-    requestAllowed = true
-    return;
+  } finally {
+    if (requestPromise === currentRequest) requestPromise = null
+    if (generation === searchGeneration && shouldContinue) display.checkScrollBottom()
   }
-  requestAllowed = true
-  const data = await res.json();
-  const images = data.messages.flat().map(msg => msg.attachments.map(i => ({
-    filename: i.filename,
-    url: i.proxy_url,
-    width: i.width,
-    height: i.height,
-    timestamp: msg.timestamp,
-    author_username: `${msg.author.username}#${msg.author.discriminator}`,
-    author_pfp_url: `https://cdn.discordapp.com/avatars/${msg.author.id}/${msg.author.avatar}?size=80`,
-    message_url: `https://discord.com/channels/@me/${msg.channel_id}/${msg.id}`
-  }))).flat();
-  currentOffset += data.messages.length
-  images.forEach(img => {
-    galleryImages.push(img)
-    display.addImage(img)
-  })
-  if (currentOffset >= data.total_results) {
-    setFinished(true)
-  }
-  display.checkScrollBottom()
 }
 
 function newSearch(channelId) {
   display.clear()
   galleryImages = []
   selectedImageIndex = -1
-  currentOffset = 0
+  currentAfter = "0"
+  searchGeneration += 1
+  requestPromise = null
   currentChannelId = channelId
-  requestAllowed = true;
   setFinished(false)
-  if (currentGuildId) request()
+  if (currentChannelId) request()
 }
 
 async function loadGuildChannels(categorySelect, channelSelect) {
-  if (!DISCORD_GUILD_ID) {
-    categorySelect.disabled = true
-    channelSelect.disabled = true
-    categorySelect.options[0].textContent = "Set server ID in config.js"
-    sendNotification("warning", "Add window.DISCORD_GUILD_ID to config.js to load channels.")
-    return
-  }
-
   categorySelect.disabled = true
   channelSelect.disabled = true
   try {
-    const response = await fetch(`https://discord.com/api/v9/guilds/${DISCORD_GUILD_ID}/channels`, {
-      headers: {
-        accept: "*/*",
-        authorization: DISCORD_TOKEN,
-      },
-      method: "GET",
-      mode: "cors",
-      credentials: "include",
-    })
-    if (!response.ok) throw new Error(`Discord returned ${response.status}`)
-
+    const response = await fetch("/api/channels")
     const channels = await response.json()
+    if (!response.ok) throw new Error(channels.error || `Gallery API returned ${response.status}`)
     const categories = new Map(channels.filter(channel => channel.type === 4).map(channel => [channel.id, channel]))
     const messageChannelTypes = new Set([0, 2, 5, 13, 15, 16])
     const uncategorizedId = "__uncategorized__"
@@ -268,7 +212,6 @@ async function loadGuildChannels(categorySelect, channelSelect) {
       .sort((left, right) => left.position - right.position)
       .forEach(channel => {
       const categoryId = categories.has(channel.parent_id) ? channel.parent_id : uncategorizedId
-      if (DISCORD_CATEGORY_IDS.length && !DISCORD_CATEGORY_IDS.includes(categoryId)) return
       if (!channelsByCategory.has(categoryId)) channelsByCategory.set(categoryId, [])
       channelsByCategory.get(categoryId).push(channel)
     })
@@ -295,7 +238,7 @@ async function loadGuildChannels(categorySelect, channelSelect) {
   } catch (error) {
     categorySelect.replaceChildren(new Option("Could not load categories", ""))
     channelSelect.replaceChildren(new Option("Could not load channels", ""))
-    sendNotification("error", "Could not load server channels. Check the token, server ID, and your access.")
+    sendNotification("error", error.message || "Could not load server channels.")
     console.warn("channel list request failed", error)
   }
 }

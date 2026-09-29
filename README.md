@@ -7,23 +7,22 @@ Video example: https://imgur.com/a/AlQqhNo
 
 Have you ever wanted to find that one image you remembered and wanted to show it to your friend, but you've been stuck searching for it for hours? Wait no more! Discord Image Gallery is for you! Instead of spending hours using `has:image`, you can just scroll down and look what you need and maybe even find something you completely forgotten.
 
-## Usage
-1. If `config.js` does not exist, copy `config.example.js` to create it. Set `window.DISCORD_TOKEN` there, then add `window.DISCORD_GUILD_ID = "your server ID"`. Keep your existing token line if you already have a `config.js`. That file is ignored by Git; do not paste your token into chat or commit it.
-  - Steps to get Discord token:
-    1. Open Discord in the browser. Modded Discord client with Dev Tools enabled works too.
-    2. Open browser Developer Tools in Discord (Ctrl+Shift+I)
-    3. In Dev Tools, navigate to Network tab
-    4. In Discord, navigate to a new channel
-    5. In Dev Tools, click on a request called `messages` or anything similar
-    6. Under request headers section, copy header value on the left of `Authorization` looking similarly to `eyJhbGciOiJIUzI1NiIsInR5c.e30.8VKCTiBegJPuPIZlp0wbV0Sbdn5BS6TE5DCx6oYN`
-  - Treat this token like a password. This browser-only app must send it from the browser to Discord, so it can still be seen in DevTools. Use the app only on your own machine and never publish it with the token configured.
-3. Open `index.html` in your favourite browser
-Note: it only works on localhost due to how CORS is handled on localhost
-4. Set `window.DISCORD_GUILD_ID` to your server's ID in `config.js`. The app loads categories into the first dropdown and their channels into the second. The gallery is fixed at five columns. To show only selected categories, set `window.DISCORD_CATEGORY_IDS = ["category ID", "another category ID"]` in `config.js`; leave it as `[]` to show all categories. You can copy IDs from Discord with Developer Mode enabled.
+## Run locally
+1. Copy `.env.example` to `.env`.
+2. Set `DISCORD_BOT_TOKEN` and `DISCORD_GUILD_ID` in `.env`. Optionally set `DISCORD_CATEGORY_IDS` to a comma-separated list of category IDs; leave it blank to include all categories.
+3. Make sure the bot has **View Channels** and **Read Message History** permissions in the channels you want to show. Enable Message Content Intent for the bot in the Discord Developer Portal.
+4. Run `npm install`, then `npm start`.
+5. Open `http://localhost:3000`.
 
-Click any result to open the carousel. Use the on-screen arrows, left and right arrow keys, or swipe horizontally on a touch screen to browse; the viewer loads more images as needed.
+The `.env` file is ignored by Git. Never commit or share the bot token. The gallery has five columns; choose a category and channel, then click an image to open the carousel. Use the arrows, keyboard arrow keys, or horizontal swipe to navigate.
 
-If you scroll too fast, Discord might rate limit you. What it means, is that you're too fast and you should wait a bit before scroll further.
+## Deploy on Render
+1. Push the project to a GitHub repository. Do not commit `.env` or a bot token.
+2. In Render, create a **Web Service** from the repository. Use build command `npm install` and start command `npm start`.
+3. Add `DISCORD_BOT_TOKEN` and `DISCORD_GUILD_ID` in the service's environment variables. Optionally add `DISCORD_CATEGORY_IDS` as a comma-separated allowlist.
+4. Deploy and share the service URL.
+
+The service is public: anyone with its URL can view images from the categories it exposes. Configure `DISCORD_CATEGORY_IDS` to limit the gallery to selected categories. Render's free service may sleep while idle.
 
 ## Credits
 Made by ELginas in 2 days 😎

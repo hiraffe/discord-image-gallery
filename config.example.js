@@ -1,3 +1,0 @@
-window.DISCORD_TOKEN = ""
-window.DISCORD_GUILD_ID = ""
-window.DISCORD_CATEGORY_IDS = []
