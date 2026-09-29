@@ -8,12 +8,17 @@ process.env.DISCORD_CATEGORY_IDS = "100000000000000001"
 
 const originalFetch = global.fetch
 const discordRequests = []
+let rateLimitNextChannelList = false
 global.fetch = async (url, options) => {
   const requestUrl = new URL(url)
   discordRequests.push(requestUrl)
   assert.equal(options.headers.Authorization, "Bot test-token")
 
   if (requestUrl.pathname.endsWith("/guilds/999999999999999999/channels")) {
+    if (rateLimitNextChannelList) {
+      rateLimitNextChannelList = false
+      return Response.json({ retry_after: 0 }, { status: 429 })
+    }
     return Response.json([
       { id: "100000000000000001", name: "Included", type: 4, position: 0 },
       { id: "100000000000000002", name: "Excluded", type: 4, position: 1 },
@@ -83,6 +88,15 @@ test("parses category allowlists as JSON arrays or comma-separated IDs", () => {
   assert.deepEqual(parseCategoryIds('["cat-1", "cat-2"]'), ["cat-1", "cat-2"])
   assert.deepEqual(parseCategoryIds("cat-1, cat-2"), ["cat-1", "cat-2"])
   assert.deepEqual(parseCategoryIds(""), [])
+})
+
+test("retries a rate-limited channel list after Discord's wait time", async () => {
+  rateLimitNextChannelList = true
+  const requestCountBefore = discordRequests.length
+  const response = await get("/api/channels")
+
+  assert.equal(response.status, 200)
+  assert.equal(discordRequests.length - requestCountBefore, 2)
 })
 
 test("filters channels and returns image messages oldest first", async () => {

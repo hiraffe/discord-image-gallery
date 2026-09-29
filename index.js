@@ -202,7 +202,11 @@ async function loadGuildChannels(categorySelect, channelSelect) {
   try {
     const response = await fetch("/api/channels")
     const channels = await response.json()
-    if (!response.ok) throw new Error(channels.error || `Gallery API returned ${response.status}`)
+    if (!response.ok) {
+      const error = new Error(channels.error || `Gallery API returned ${response.status}`)
+      error.status = response.status
+      throw error
+    }
     const categories = new Map(channels.filter(channel => channel.type === 4).map(channel => [channel.id, channel]))
     const messageChannelTypes = new Set([0, 2, 5, 13, 15, 16])
     const uncategorizedId = "__uncategorized__"
@@ -236,7 +240,8 @@ async function loadGuildChannels(categorySelect, channelSelect) {
     }
     categorySelect.disabled = false
   } catch (error) {
-    categorySelect.replaceChildren(new Option("Could not load categories", ""))
+    const categoryMessage = error.status === 429 ? "Rate limited; wait, then reload" : "Could not load categories"
+    categorySelect.replaceChildren(new Option(categoryMessage, ""))
     channelSelect.replaceChildren(new Option("Could not load channels", ""))
     sendNotification("error", error.message || "Could not load server channels.")
     console.warn("channel list request failed", error)

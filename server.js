@@ -8,7 +8,7 @@ const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN
 const GUILD_ID = process.env.DISCORD_GUILD_ID
 const CATEGORY_IDS = new Set(parseCategoryIds(process.env.DISCORD_CATEGORY_IDS || ""))
 const MESSAGE_CHANNEL_TYPES = new Set([0, 2, 5, 13, 15, 16])
-const CHANNEL_CACHE_MS = 60_000
+const CHANNEL_CACHE_MS = 5 * 60_000
 const publicFiles = new Map([
   ["/", "index.html"],
   ["/index.html", "index.html"],
@@ -49,23 +49,30 @@ function sendJson(response, statusCode, data) {
 }
 
 async function discordRequest(endpoint) {
-  const response = await fetch(`https://discord.com/api/v10${endpoint}`, {
-    headers: {
-      Authorization: `Bot ${BOT_TOKEN}`,
-      "User-Agent": "DiscordBot (https://discord.com, 1.0)",
-    },
-    signal: AbortSignal.timeout(15_000),
-  })
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch(`https://discord.com/api/v10${endpoint}`, {
+      headers: {
+        Authorization: `Bot ${BOT_TOKEN}`,
+        "User-Agent": "DiscordBot (https://discord.com, 1.0)",
+      },
+      signal: AbortSignal.timeout(15_000),
+    })
 
-  if (!response.ok) {
+    if (response.ok) return response.json()
+
+    const discordError = await response.json().catch(() => null)
+    const retryAfterSeconds = Number(discordError?.retry_after ?? response.headers.get("retry-after"))
+    if (response.status === 429 && attempt === 0 && Number.isFinite(retryAfterSeconds)) {
+      await new Promise(resolve => setTimeout(resolve, Math.ceil(retryAfterSeconds * 1000) + 100))
+      continue
+    }
+
     const error = new Error(`Discord returned ${response.status}`)
     error.status = response.status
-    error.retryAfter = response.headers.get("retry-after")
-    const discordError = await response.json().catch(() => null)
+    error.retryAfter = Number.isFinite(retryAfterSeconds) ? String(retryAfterSeconds) : response.headers.get("retry-after")
     error.discordCode = discordError?.code
     throw error
   }
-  return response.json()
 }
 
 async function getGuildChannels() {
@@ -183,7 +190,7 @@ async function handleApi(request, response, url) {
       : error.status === 401
         ? "Discord rejected the bot token. Check DISCORD_BOT_TOKEN in the server environment."
       : error.status === 429
-        ? "Discord is rate limiting the bot. Try again shortly."
+        ? `Discord is rate limiting the bot. Wait ${error.retryAfter || "a little"} seconds, then retry.`
         : "Could not load Discord data. Check the bot permissions and server configuration."
     const headers = error.retryAfter ? { "Retry-After": error.retryAfter } : {}
     response.writeHead(statusCode, {
