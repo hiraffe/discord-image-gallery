@@ -25,6 +25,8 @@ const contentTypes = {
 let cachedChannels
 let channelCacheExpiresAt = 0
 let channelRequest
+let cachedChannelRateLimit
+let channelRateLimitExpiresAt = 0
 
 function parseCategoryIds(value) {
   const normalized = value.trim()
@@ -79,6 +81,14 @@ async function discordRequest(endpoint) {
 
 async function getGuildChannels() {
   if (cachedChannels && Date.now() < channelCacheExpiresAt) return cachedChannels
+  if (cachedChannelRateLimit && Date.now() < channelRateLimitExpiresAt) {
+    const error = new Error(cachedChannelRateLimit.message)
+    Object.assign(error, cachedChannelRateLimit, {
+      retryAfter: String(Math.ceil((channelRateLimitExpiresAt - Date.now()) / 1000)),
+    })
+    throw error
+  }
+  cachedChannelRateLimit = undefined
   if (channelRequest) return channelRequest
 
   channelRequest = (async () => {
@@ -101,9 +111,24 @@ async function getGuildChannels() {
 
   try {
     return await channelRequest
+  } catch (error) {
+    if (error.status === 429) {
+      const retryAfterMs = Number(error.retryAfter) * 1000
+      const cooldownMs = Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : 1_000
+      cachedChannelRateLimit = error
+      channelRateLimitExpiresAt = Date.now() + cooldownMs
+    }
+    throw error
   } finally {
     channelRequest = undefined
   }
+}
+
+function resetGuildChannelCache() {
+  cachedChannels = undefined
+  channelCacheExpiresAt = 0
+  cachedChannelRateLimit = undefined
+  channelRateLimitExpiresAt = 0
 }
 
 function isImageAttachment(attachment) {
@@ -257,4 +282,4 @@ if (require.main === module) {
   })
 }
 
-module.exports = { createServer, parseCategoryIds }
+module.exports = { createServer, parseCategoryIds, resetGuildChannelCache }

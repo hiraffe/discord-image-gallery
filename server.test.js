@@ -51,7 +51,7 @@ global.fetch = async (url, options) => {
   throw new Error(`Unexpected Discord request: ${requestUrl.pathname}`)
 }
 
-const { createServer, parseCategoryIds } = require("./server")
+const { createServer, parseCategoryIds, resetGuildChannelCache } = require("./server")
 const server = createServer()
 let serverPort
 
@@ -92,19 +92,25 @@ test("parses category allowlists as JSON arrays or comma-separated IDs", () => {
 })
 
 test("returns long rate limits without holding the category request open", async () => {
+  resetGuildChannelCache()
   rateLimitNextChannelList = true
   channelListRetryAfter = 60
   const startTime = Date.now()
   const response = await get("/api/channels")
   const data = JSON.parse(response.body)
+  const requestsAfterFirstLimit = discordRequests.length
+  const repeatedResponse = await get("/api/channels")
 
   assert.equal(response.status, 429)
   assert.match(data.error, /60 seconds/)
   assert.ok(Date.now() - startTime < 2_000)
+  assert.equal(repeatedResponse.status, 429)
+  assert.equal(discordRequests.length, requestsAfterFirstLimit)
   channelListRetryAfter = 0
 })
 
 test("retries a short channel-list rate limit after Discord's wait time", async () => {
+  resetGuildChannelCache()
   rateLimitNextChannelList = true
   channelListRetryAfter = 0
   const requestCountBefore = discordRequests.length
@@ -115,6 +121,7 @@ test("retries a short channel-list rate limit after Discord's wait time", async 
 })
 
 test("filters channels and returns image messages oldest first", async () => {
+  resetGuildChannelCache()
   const channelsResponse = await get("/api/channels")
   const channels = JSON.parse(channelsResponse.body)
   assert.equal(channelsResponse.status, 200)
