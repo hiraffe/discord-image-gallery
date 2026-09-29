@@ -200,7 +200,7 @@ async function loadGuildChannels(categorySelect, channelSelect) {
   categorySelect.disabled = true
   channelSelect.disabled = true
   try {
-    const response = await fetch("/api/channels")
+    const response = await fetch("/api/channels", { signal: AbortSignal.timeout(20_000) })
     const channels = await response.json()
     if (!response.ok) {
       const error = new Error(channels.error || `Gallery API returned ${response.status}`)
@@ -240,7 +240,11 @@ async function loadGuildChannels(categorySelect, channelSelect) {
     }
     categorySelect.disabled = false
   } catch (error) {
-    const categoryMessage = error.status === 429 ? "Rate limited; wait, then reload" : "Could not load categories"
+    const categoryMessage = error.status === 429
+      ? "Rate limited; wait, then reload"
+      : error.name === "TimeoutError"
+        ? "Request timed out; reload to retry"
+        : "Could not load categories"
     categorySelect.replaceChildren(new Option(categoryMessage, ""))
     channelSelect.replaceChildren(new Option("Could not load channels", ""))
     sendNotification("error", error.message || "Could not load server channels.")

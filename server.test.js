@@ -9,6 +9,7 @@ process.env.DISCORD_CATEGORY_IDS = "100000000000000001"
 const originalFetch = global.fetch
 const discordRequests = []
 let rateLimitNextChannelList = false
+let channelListRetryAfter = 0
 global.fetch = async (url, options) => {
   const requestUrl = new URL(url)
   discordRequests.push(requestUrl)
@@ -17,7 +18,7 @@ global.fetch = async (url, options) => {
   if (requestUrl.pathname.endsWith("/guilds/999999999999999999/channels")) {
     if (rateLimitNextChannelList) {
       rateLimitNextChannelList = false
-      return Response.json({ retry_after: 0 }, { status: 429 })
+      return Response.json({ retry_after: channelListRetryAfter }, { status: 429 })
     }
     return Response.json([
       { id: "100000000000000001", name: "Included", type: 4, position: 0 },
@@ -90,8 +91,22 @@ test("parses category allowlists as JSON arrays or comma-separated IDs", () => {
   assert.deepEqual(parseCategoryIds(""), [])
 })
 
-test("retries a rate-limited channel list after Discord's wait time", async () => {
+test("returns long rate limits without holding the category request open", async () => {
   rateLimitNextChannelList = true
+  channelListRetryAfter = 60
+  const startTime = Date.now()
+  const response = await get("/api/channels")
+  const data = JSON.parse(response.body)
+
+  assert.equal(response.status, 429)
+  assert.match(data.error, /60 seconds/)
+  assert.ok(Date.now() - startTime < 2_000)
+  channelListRetryAfter = 0
+})
+
+test("retries a short channel-list rate limit after Discord's wait time", async () => {
+  rateLimitNextChannelList = true
+  channelListRetryAfter = 0
   const requestCountBefore = discordRequests.length
   const response = await get("/api/channels")
 

@@ -9,6 +9,7 @@ const GUILD_ID = process.env.DISCORD_GUILD_ID
 const CATEGORY_IDS = new Set(parseCategoryIds(process.env.DISCORD_CATEGORY_IDS || ""))
 const MESSAGE_CHANNEL_TYPES = new Set([0, 2, 5, 13, 15, 16])
 const CHANNEL_CACHE_MS = 5 * 60_000
+const MAX_AUTOMATIC_RETRY_MS = 5_000
 const publicFiles = new Map([
   ["/", "index.html"],
   ["/index.html", "index.html"],
@@ -62,8 +63,9 @@ async function discordRequest(endpoint) {
 
     const discordError = await response.json().catch(() => null)
     const retryAfterSeconds = Number(discordError?.retry_after ?? response.headers.get("retry-after"))
-    if (response.status === 429 && attempt === 0 && Number.isFinite(retryAfterSeconds)) {
-      await new Promise(resolve => setTimeout(resolve, Math.ceil(retryAfterSeconds * 1000) + 100))
+    const retryAfterMs = retryAfterSeconds * 1000
+    if (response.status === 429 && attempt === 0 && Number.isFinite(retryAfterMs) && retryAfterMs <= MAX_AUTOMATIC_RETRY_MS) {
+      await new Promise(resolve => setTimeout(resolve, Math.ceil(retryAfterMs) + 100))
       continue
     }
 
