@@ -44,15 +44,13 @@ nav {
   display: flex;
   justify-content: center;
   align-items: center;
+  flex-wrap: wrap;
   margin: 10px;
+  gap: 10px;
 }
 
 nav > h1 {
   font-weight: bold;
-}
-
-input[type="number"] {
-  width: 60px;
 }
 
 input, button {
@@ -150,7 +148,8 @@ nav > *:last-child {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 15px;
+  gap: 0;
+  width: 100%;
   transform: scale(0%);
   opacity: 100%;
   transition: transform .2s ease-out 0s, opacity, .2s ease-out 0s;
@@ -180,16 +179,11 @@ nav > *:last-child {
 }
 
 #expanded-image .top-bar {
-  display: flex;
-  align-items: center;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.6); 
+  display: none;
 }
 
 #expanded-image .btm-bar {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.6); 
+  display: none;
 }
 
 #expanded-image .btm-bar .left {
@@ -213,15 +207,92 @@ nav > *:last-child {
 }
 
 #expanded-img {
-  flex: 0 0 auto;
-  max-width: 75vw;
-  max-height: 75vh;
+  min-width: 0;
+  max-width: 100%;
+  max-height: 72vh;
   width: auto;
   height: auto;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.carousel-stage {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 12px;
+  width: min(96vw, 1200px);
+  touch-action: pan-y;
+}
+
+#previous-image {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+#expanded-img {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: center;
+}
+
+#next-image {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.carousel-arrow {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font-size: 24px;
+}
+
+.carousel-arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+#image-position {
+  display: block;
+  min-height: 1em;
+  margin-top: 8px;
+  color: rgb(190, 190, 190);
 }
 
 select {
+  width: min(260px, 42vw);
   padding: 5px 10px;
   border-radius: 5px;
   background: #080808;
+}
+
+@media (max-width: 700px) {
+  nav {
+    align-items: flex-start;
+  }
+
+  nav > h1 {
+    width: 100%;
+    text-align: center;
+  }
+
+  nav > .bar:last-child {
+    flex-wrap: wrap;
+  }
+
+  .carousel-stage {
+    grid-template-columns: 38px minmax(0, 1fr) 38px;
+    gap: 6px;
+  }
+
+  .carousel-arrow {
+    flex-basis: 38px;
+    width: 38px;
+    height: 38px;
+  }
+
+  #expanded-img { max-height: 68vh; }
 }

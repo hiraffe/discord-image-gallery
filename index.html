@@ -4,24 +4,25 @@
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Discord Image Gallery</title>
+    <title>PTSMP Screenshot Viewer</title>
+    <script src="config.js"></script>
     <script src="index.js"></script>
     <link rel="stylesheet" href="index.css" />
+    <link rel="icon" type="image/png" href="https://ibb.co/6cjh0xsn">
   </head>
   <body>
     <div class="notifications"></div>
     <nav>
       <div class="bar">
       </div>
-      <h1>Discord Image Gallery</h1>
+      <h1>PTSMP Screenshot Viewer</h1>
       <div class="bar">
-        <select name="type" id="type">
-          <option value="channels">DMs/Group Chats</option>
-          <option value="guilds">Guilds</option>
+        <select id="category-select" aria-label="Choose a channel category">
+          <option value="">Loading categories...</option>
         </select>
-        <span class="column-count-label">Column count:</span>
-        <input type="number" id="column-count" min="1" max="20" value="5" />
-        <input type="text" placeholder="Channel/Guild ID" id="channel-id" />
+        <select id="channel-select" aria-label="Choose a channel">
+          <option value="">Choose a category first</option>
+        </select>
       </div>
     </nav>
     <div id="display"></div>
@@ -35,7 +36,12 @@
           <span id="author-username"></span>
           <span id="creation-date"></span>
         </div>
-        <img src="" alt="" id="expanded-img" />
+        <div class="carousel-stage">
+          <button type="button" class="carousel-arrow" id="previous-image" aria-label="Previous image" title="Previous image">&#8592;</button>
+          <img src="" alt="" id="expanded-img" />
+          <button type="button" class="carousel-arrow" id="next-image" aria-label="Next image" title="Next image">&#8594;</button>
+        </div>
+        <span id="image-position" aria-live="polite"></span>
         <div class="btm-bar">
           <div class="left">
             <span id="image-filename"></span>

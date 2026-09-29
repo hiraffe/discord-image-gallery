@@ -1,4 +1,8 @@
-const DISCORD_TOKEN = "<insert-your-discord-token-here>"
+const DISCORD_TOKEN = window.DISCORD_TOKEN || ""
+const DISCORD_GUILD_ID = window.DISCORD_GUILD_ID || ""
+const DISCORD_CATEGORY_IDS = Array.isArray(window.DISCORD_CATEGORY_IDS)
+  ? window.DISCORD_CATEGORY_IDS.map(String)
+  : []
 
 function sendNotification(type, msg) {
   const notifications = document.querySelector(".notifications")
@@ -16,7 +20,7 @@ class Display {
   #columns = []
   #images = []
 
-  constructor(columnCount) {
+  constructor(columnCount = 5) {
     this.ref = document.querySelector("#display")
     this.html = document.querySelector("html")
     this.#recalculateColumns(columnCount)
@@ -87,42 +91,62 @@ class Display {
   }
 }
 
-let channelIdInputTimeout
 let display
-const channelIdInputDelayMs = 400
+let galleryImages = []
+let selectedImageIndex = -1
+let channelsByCategory = new Map()
 
 window.addEventListener("load", () => {
   const expandedImageBg = document.querySelector("#expanded-image-bg")
   const expandedImage = document.querySelector("#expanded-image")
   expandedImageBg.addEventListener("click", e => e.target === expandedImageBg || e.target === expandedImage ? expandImage(null) : null)
 
-  channelIdInput = document.querySelector("#channel-id")
-  channelIdInput.addEventListener("input", e => {
-    clearTimeout(channelIdInputTimeout);
-    channelIdInputTimeout = setInterval(() => {
-      newChannelId(e.target.value)
-      clearTimeout(channelIdInputTimeout);
-    }, channelIdInputDelayMs);
+  const categorySelect = document.querySelector("#category-select")
+  const channelSelect = document.querySelector("#channel-select")
+  categorySelect.addEventListener("change", () => {
+    const selectedChannels = channelsByCategory.get(categorySelect.value) || []
+    channelSelect.replaceChildren(new Option(
+      selectedChannels.length ? "Select a channel" : "No channels in this category",
+      ""
+    ))
+    selectedChannels.forEach(channel => channelSelect.add(new Option(channel.name, channel.id)))
+    channelSelect.disabled = selectedChannels.length === 0
   })
-  currentChannelId = channelIdInput.value
+  channelSelect.addEventListener("change", () => newSearch(channelSelect.value))
 
-  columnCountInput = document.querySelector("#column-count")
-  columnCountInput.addEventListener("input", e => {
-    const min = e.target.min;
-    const max = e.target.max;
-    const value = parseInt(e.target.value);
-    if (value > max) {
-      e.target.value = min;
-    } else if (value < min) {
-      e.target.value = max;
-    }
-    display.columnCount = e.target.value
+  document.querySelector("#previous-image").addEventListener("click", () => navigateCarousel(-1))
+  document.querySelector("#next-image").addEventListener("click", () => navigateCarousel(1))
+  const carouselStage = document.querySelector(".carousel-stage")
+  let swipeStart = null
+  carouselStage.addEventListener("pointerdown", e => {
+    if (e.pointerType === "mouse" || e.target.closest("button")) return
+    swipeStart = { pointerId: e.pointerId, x: e.clientX, y: e.clientY }
   })
-  display = new Display(columnCountInput.value)
+  window.addEventListener("pointerup", e => {
+    if (!swipeStart || swipeStart.pointerId !== e.pointerId) return
+    const deltaX = e.clientX - swipeStart.x
+    const deltaY = e.clientY - swipeStart.y
+    swipeStart = null
+    if (Math.abs(deltaX) < 50 || Math.abs(deltaX) <= Math.abs(deltaY)) return
+    navigateCarousel(deltaX < 0 ? 1 : -1)
+  })
+  window.addEventListener("pointercancel", e => {
+    if (swipeStart?.pointerId === e.pointerId) swipeStart = null
+  })
+  document.addEventListener("keydown", e => {
+    if (selectedImageIndex < 0) return
+    if (e.key === "ArrowLeft") navigateCarousel(-1)
+    if (e.key === "ArrowRight") navigateCarousel(1)
+    if (e.key === "Escape") expandImage(null)
+  })
+
+  display = new Display(5)
+  loadGuildChannels(categorySelect, channelSelect)
 })
 
 let currentOffset = 0
 let currentChannelId
+let currentGuildId = DISCORD_GUILD_ID
 let requestAllowed = true;
 
 let finished = false;
@@ -132,15 +156,21 @@ const setFinished = v => {
 }
 
 async function request() {
-  if (!currentChannelId) return
+  if (!currentGuildId || !currentChannelId) return
   if (!requestAllowed) return
   if (finished) return
   requestAllowed = false
 
-  const channelType = document.querySelector("#type").value 
+  const query = new URLSearchParams({
+    has: "image",
+    offset: String(currentOffset),
+    channel_id: currentChannelId,
+    sort_by: "timestamp",
+    sort_order: "asc",
+  })
 
   const res = await fetch(
-    `https://discord.com/api/v9/${channelType}/${currentChannelId}/messages/search?has=image&offset=${currentOffset}`,
+    `https://discord.com/api/v9/guilds/${currentGuildId}/messages/search?${query}`,
     {
       headers: {
         accept: "*/*",
@@ -164,9 +194,11 @@ async function request() {
     return;
   } else if (res.status === 400) {
     sendNotification("warning", "Unknown fetch error.")
+    requestAllowed = true
     return;
   } else if (!res.ok) {
     console.warn("unknown search fetch error")
+    requestAllowed = true
     return;
   }
   requestAllowed = true
@@ -182,20 +214,100 @@ async function request() {
     message_url: `https://discord.com/channels/@me/${msg.channel_id}/${msg.id}`
   }))).flat();
   currentOffset += data.messages.length
-  images.forEach(img => display.addImage(img))
+  images.forEach(img => {
+    galleryImages.push(img)
+    display.addImage(img)
+  })
   if (currentOffset >= data.total_results) {
     setFinished(true)
   }
   display.checkScrollBottom()
 }
 
-function newChannelId(channelId) {
+function newSearch(channelId) {
   display.clear()
+  galleryImages = []
+  selectedImageIndex = -1
   currentOffset = 0
   currentChannelId = channelId
   requestAllowed = true;
   setFinished(false)
-  request();
+  if (currentGuildId) request()
+}
+
+async function loadGuildChannels(categorySelect, channelSelect) {
+  if (!DISCORD_GUILD_ID) {
+    categorySelect.disabled = true
+    channelSelect.disabled = true
+    categorySelect.options[0].textContent = "Set server ID in config.js"
+    sendNotification("warning", "Add window.DISCORD_GUILD_ID to config.js to load channels.")
+    return
+  }
+
+  categorySelect.disabled = true
+  channelSelect.disabled = true
+  try {
+    const response = await fetch(`https://discord.com/api/v9/guilds/${DISCORD_GUILD_ID}/channels`, {
+      headers: {
+        accept: "*/*",
+        authorization: DISCORD_TOKEN,
+      },
+      method: "GET",
+      mode: "cors",
+      credentials: "include",
+    })
+    if (!response.ok) throw new Error(`Discord returned ${response.status}`)
+
+    const channels = await response.json()
+    const categories = new Map(channels.filter(channel => channel.type === 4).map(channel => [channel.id, channel]))
+    const messageChannelTypes = new Set([0, 2, 5, 13, 15, 16])
+    const uncategorizedId = "__uncategorized__"
+    channelsByCategory = new Map()
+
+    channels.filter(channel => messageChannelTypes.has(channel.type))
+      .sort((left, right) => left.position - right.position)
+      .forEach(channel => {
+      const categoryId = categories.has(channel.parent_id) ? channel.parent_id : uncategorizedId
+      if (DISCORD_CATEGORY_IDS.length && !DISCORD_CATEGORY_IDS.includes(categoryId)) return
+      if (!channelsByCategory.has(categoryId)) channelsByCategory.set(categoryId, [])
+      channelsByCategory.get(categoryId).push(channel)
+    })
+
+    categorySelect.replaceChildren(new Option("Select a category", ""))
+    const categoryOptions = [...categories.values()]
+      .filter(category => channelsByCategory.has(category.id))
+      .map(category => ({ id: category.id, name: category.name, position: category.position }))
+    if (channelsByCategory.has(uncategorizedId)) {
+      categoryOptions.push({
+        id: uncategorizedId,
+        name: "Uncategorized",
+        position: Math.min(...channelsByCategory.get(uncategorizedId).map(channel => channel.position)),
+      })
+    }
+    categoryOptions.sort((left, right) => left.position - right.position)
+    categoryOptions.forEach(category => categorySelect.add(new Option(category.name, category.id)))
+
+    if (categorySelect.options.length === 1) {
+      categorySelect.options[0].textContent = "No matching categories found"
+      return
+    }
+    categorySelect.disabled = false
+  } catch (error) {
+    categorySelect.replaceChildren(new Option("Could not load categories", ""))
+    channelSelect.replaceChildren(new Option("Could not load channels", ""))
+    sendNotification("error", "Could not load server channels. Check the token, server ID, and your access.")
+    console.warn("channel list request failed", error)
+  }
+}
+
+async function navigateCarousel(direction) {
+  let targetIndex = selectedImageIndex + direction
+  if (targetIndex >= galleryImages.length && !finished) {
+    await request()
+  }
+  if (targetIndex >= 0 && targetIndex < galleryImages.length) {
+    expandImage(galleryImages[targetIndex])
+  }
 }
 
 let originalLinkOnClick
@@ -213,8 +325,15 @@ function expandImage(imageData) {
   const originalImageSize = document.querySelector("#original-image-size")
   const originalLink = document.querySelector("#original-link")
   const messageLink = document.querySelector("#message-link")
+  const imagePosition = document.querySelector("#image-position")
+  const previousButton = document.querySelector("#previous-image")
+  const nextButton = document.querySelector("#next-image")
 
   if (imageData) {
+    selectedImageIndex = galleryImages.indexOf(imageData)
+    imagePosition.textContent = `${selectedImageIndex + 1} / ${galleryImages.length}${finished ? "" : "+"}`
+    previousButton.disabled = selectedImageIndex <= 0
+    nextButton.disabled = finished && selectedImageIndex >= galleryImages.length - 1
     const options = { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric' }; 
     const date = new Date(imageData.timestamp)
 
@@ -236,6 +355,10 @@ function expandImage(imageData) {
     originalLink.addEventListener("click", originalLinkOnClick)
     messageLink.addEventListener("click", messageLinkOnClick)
   } else {
+    selectedImageIndex = -1
+    imagePosition.textContent = ""
+    previousButton.disabled = true
+    nextButton.disabled = true
     setTimeout(() => {
       expandedImg.width = 0
       expandedImg.height = 0
